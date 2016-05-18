@@ -2,11 +2,31 @@ package client
 
 import (
 	"encoding/binary"
-	"net"
 	"fmt"
+	"math/rand"
+	"net"
+	"time"
+	"unsafe"
 )
 
+/*
+#include <stdint.h>
+
+#define MAX_PACKETBUFFER_LENGTH 1024
+
+struct nrpe_packet {
+	int16_t  packet_version;
+	int16_t  packet_type;
+	uint32_t crc32_value;
+	int16_t  result_code;
+	char     buffer[MAX_PACKETBUFFER_LENGTH];
+};
+*/
+import "C"
+
 var crc32Table []uint32
+
+var randSource *rand.Rand
 
 const (
 	MAX_PACKETBUFFER_LENGTH = 1024
@@ -23,37 +43,28 @@ const (
 	NRPE_PACKET_VERSION_1 = 1
 )
 
-type packet struct {
-	packet_version  uint16
-	packet_type     uint16
-	crc32_value     uint32
-	result_code     uint16
-	buffer        []byte
-}
-
 func init() {
-
-	var crc, poly uint32
-	var i, j uint32
+	var crc, poly, i, j uint32
 
 	crc32Table = make([]uint32, 256)
 
 	poly = uint32(0xEDB88320)
 
-    for i=0; i<256; i++ {
-        crc = i
+	for i = 0; i < 256; i++ {
+		crc = i
 
-        for j=8; j>0; j-- {
-            if (crc & 1) != 0 {
-                crc = (crc>>1) ^ poly
+		for j = 8; j > 0; j-- {
+			if (crc & 1) != 0 {
+				crc = (crc >> 1) ^ poly
 			} else {
-                crc>>=1
+				crc >>= 1
 			}
 		}
 
-        crc32Table[i] = crc
+		crc32Table[i] = crc
 	}
 
+	randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
 func crc32(in []byte) uint32 {
@@ -62,86 +73,92 @@ func crc32(in []byte) uint32 {
 	crc = uint32(0xFFFFFFFF)
 
 	for _, c := range in {
-		crc = ((crc>>8) & uint32(0x00FFFFFF)) ^ crc32Table[(crc ^ uint32(c)) & 0xFF]
+		crc = ((crc >> 8) & uint32(0x00FFFFFF)) ^ crc32Table[(crc^uint32(c))&0xFF]
 	}
 
-	return (crc ^ uint32(0xFFFFFFFF));
+	return (crc ^ uint32(0xFFFFFFFF))
 }
 
-func CreatePacket(command string) (*packet) {
-	var p packet
+func randomizeBuffer(in []byte) {
+	n := len(in) >> 2
 
-	p.buffer = make([]byte, MAX_PACKETBUFFER_LENGTH)
+	for i := 0; i < n; i++ {
+		r := randSource.Uint32()
 
-	p.packet_version = NRPE_PACKET_VERSION_2
-	p.packet_type    = QUERY_PACKET
-	copy(p.buffer, []byte(command))
+		copy(in[i<<2:(i+1)<<2], (*[4]byte)(unsafe.Pointer(&r))[:])
+	}
 
-	return &p
+	if len(in)%4 != 0 {
+		r := randSource.Uint32()
+
+		copy(in[n<<2:len(in)], (*[4]byte)(unsafe.Pointer(&r))[:len(in)-(n<<2)])
+	}
 }
 
-func (p *packet) Len() int {
-	return MAX_PACKETBUFFER_LENGTH + 12
+func SendRequest(conn net.Conn, command string) (*string, error) {
+	return SendRequestWithArgs(conn, command, nil)
 }
 
-func SendPacket(conn net.Conn, pkt *packet) error {
+func SendRequestWithArgs(conn net.Conn, command string, args []string) (*string, error) {
+	var pkt C.struct_nrpe_packet
+
+	b := (*(*[1<<31 - 1]byte)(unsafe.Pointer(&pkt)))[:unsafe.Sizeof(pkt)]
 
 	be := binary.BigEndian
 
-	buffer := make([]byte, pkt.Len())
+	randomizeBuffer(b)
 
-	p := buffer
+	be.PutUint16(b[unsafe.Offsetof(pkt.packet_version):], NRPE_PACKET_VERSION_2)
+	be.PutUint16(b[unsafe.Offsetof(pkt.packet_type):], QUERY_PACKET)
+	be.PutUint32(b[unsafe.Offsetof(pkt.crc32_value):], 0)
+	be.PutUint16(b[unsafe.Offsetof(pkt.result_code):], 3)
 
-	/*
-	buffer structure
-	| 16 bit version | 16 bit type | 32 bit crc | 1024 byte data |
-	|       |        |     |       |   |   |  | | | | | | | ...  |
-	*/
+	copy(b[unsafe.Offsetof(pkt.buffer):], []byte(command))
+	b[int(unsafe.Offsetof(pkt.buffer))+len(command)] = 0
 
-	be.PutUint16(p, pkt.packet_version)
-	p = p[2:]
+	be.PutUint32(b[unsafe.Offsetof(pkt.crc32_value):], crc32(b))
 
-	be.PutUint16(p, pkt.packet_type)
-	p = p[2:]
+	bb := make([]byte, len(b))
+	copy(bb, b)
 
-	be.PutUint32(p, 0)
-	p = p[4:]
+	respBuffer := make([]byte, len(b))
 
-	be.PutUint16(p, 3)
-	p = p[2:]
+	if true {
+		err := sendSSL(conn, bb, respBuffer)
 
-	copy(p, pkt.buffer)
+		if err != nil {
+			return nil, err
+		}
 
-	crc := crc32(buffer)
+	} else {
+		l, err := conn.Write(bb)
 
-	be.PutUint32(buffer[4:], crc)
+		if err != nil || l != len(bb) {
+			return nil, err
+		}
 
-	l, err := conn.Write(buffer)
+		l, err = conn.Read(respBuffer)
 
-	fmt.Printf("%+v\n", buffer)
-
-	if err != nil || l != len(buffer) {
-		return err
+		if err != nil || l != len(respBuffer) {
+			return nil, err
+		}
 	}
 
-	respBuffer := make([]byte, pkt.Len())
+	var resp C.struct_nrpe_packet
 
-	l, err = conn.Read(respBuffer)
+	r := (*(*[1<<31 - 1]byte)(unsafe.Pointer(&resp)))[:unsafe.Sizeof(resp)]
 
-	if err != nil || l != len(respBuffer) {
-		return err
+	copy(r, respBuffer)
+
+	crc := be.Uint32(r[unsafe.Offsetof(resp.crc32_value):])
+
+	be.PutUint32(r[unsafe.Offsetof(resp.crc32_value):], 0)
+
+	if crc32(r) != crc {
+		return nil, fmt.Errorf("crc didnt match")
 	}
 
-	var resp packet
+	res := C.GoString((*C.char)(unsafe.Pointer(&resp.buffer[0])))
 
-	resp.packet_version = be.Uint16(respBuffer)
-	resp.packet_type    = be.Uint16(respBuffer[2:])
-	resp.crc32_value    = be.Uint32(respBuffer[4:])
-	resp.result_code    = be.Uint16(respBuffer[8:])
-
-	resp.buffer = respBuffer[10:]
-
-	fmt.Printf("%s\n", string(resp.buffer))
-
-	return nil
+	return &res, nil
 }

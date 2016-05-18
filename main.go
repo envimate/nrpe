@@ -1,10 +1,10 @@
 package main
 
 import (
-	"net"
 	_ "crypto/tls"
 	"fmt"
 	nrpe "github.com/envimate/nrpe/client"
+	"net"
 )
 
 func main() {
@@ -18,9 +18,17 @@ func main() {
 
 	_ = conn
 
-	packet := nrpe.CreatePacket("check_load")
+	//packet := nrpe.CreatePacket("check_load")
 
-	nrpe.SendPacket(conn, packet)
+	res, err := nrpe.SendRequest(conn, "check_load")
+
+	fmt.Printf("%s\n", *res)
+
+	/*err = nrpe.SendRequest(conn, "check_load")
+
+	fmt.Printf("%s\n", err)*/
+
+	//nrpe.SendPacket(conn, packet)
 
 	// fmt.Printf("%+v\n", packet)
 }
