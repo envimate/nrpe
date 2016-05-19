@@ -1,4 +1,4 @@
-# nrpe
+# nrpe client library
 
 Package `envimate/nrpe` implements NRPE client library for go.
 
@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-        conn, err := net.Dial("tcp", "127.0.0.1:566")
+        conn, err := net.Dial("tcp", "127.0.0.1:5666")
         if err != nil {
                 fmt.Println(err)
                 return
