@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	conn, err := net.Dial("tcp", "127.0.0.1:5666")
+	conn, err := net.Dial("tcp", "10.1.47.2:5666")
 	//conn, err := tls.Dial("tcp", "127.0.0.1:5666")
 
 	if err != nil {
@@ -20,7 +20,7 @@ func main() {
 
 	//packet := nrpe.CreatePacket("check_load")
 
-	res, err := nrpe.SendRequest(conn, "check_load")
+	res, err := nrpe.SendRequest(conn, "version")
 
 	fmt.Printf("%s\n", *res)
 

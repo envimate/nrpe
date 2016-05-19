@@ -18,7 +18,7 @@ import (
 #include <openssl/bio.h>
 
 // openssl multi-threading
-pthread_mutex_t *nrpe_locks;
+static pthread_mutex_t *nrpe_locks;
 
 static void nrpe_openssl_thread_callback(int mode, int index, const char * file, int line) {
     if (mode & CRYPTO_LOCK) {

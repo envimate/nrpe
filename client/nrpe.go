@@ -9,40 +9,26 @@ import (
 	"unsafe"
 )
 
-/*
-#include <stdint.h>
-
-#define MAX_PACKETBUFFER_LENGTH 1024
-
-struct nrpe_packet {
-	int16_t  packet_version;
-	int16_t  packet_type;
-	uint32_t crc32_value;
-	int16_t  result_code;
-	char     buffer[MAX_PACKETBUFFER_LENGTH];
-};
-*/
-import "C"
-
 var crc32Table []uint32
 
 var randSource *rand.Rand
 
 const (
-	MAX_PACKETBUFFER_LENGTH = 1024
+	maxPacketDataLength = 1024
+	packetLength        = maxPacketDataLength + 12
 )
 
 const (
-	QUERY_PACKET    = 1
-	RESPONSE_PACKET = 2
+	queryPacketType    = 1
+	responsePacketType = 2
 )
 
 const (
-	NRPE_PACKET_VERSION_3 = 3
-	NRPE_PACKET_VERSION_2 = 2
-	NRPE_PACKET_VERSION_1 = 1
+	//currently supporting latest version2 protocol
+	nrpePacketVersion2 = 2
 )
 
+// Initialization of crc32Table and randSource
 func init() {
 	var crc, poly, i, j uint32
 
@@ -67,6 +53,7 @@ func init() {
 	randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
+//Builds crc32 from the given input
 func crc32(in []byte) uint32 {
 	var crc uint32
 
@@ -79,6 +66,7 @@ func crc32(in []byte) uint32 {
 	return (crc ^ uint32(0xFFFFFFFF))
 }
 
+//extra randomization for encryption
 func randomizeBuffer(in []byte) {
 	n := len(in) >> 2
 
@@ -91,70 +79,131 @@ func randomizeBuffer(in []byte) {
 	if len(in)%4 != 0 {
 		r := randSource.Uint32()
 
-		copy(in[n<<2:len(in)], (*[4]byte)(unsafe.Pointer(&r))[:len(in)-(n<<2)])
+		copy(in[n<<2:], (*[4]byte)(unsafe.Pointer(&r))[:len(in)-(n<<2)])
 	}
 }
 
-func SendRequest(conn net.Conn, command string) (*string, error) {
-	return SendRequestWithArgs(conn, command, nil)
+type Command struct {
+	Name string
+	Args []string
 }
 
-func SendRequestWithArgs(conn net.Conn, command string, args []string) (*string, error) {
-	var pkt C.struct_nrpe_packet
+func NewCmmand(name string, args ...string) Command {
+	return Command{
+		Name: name,
+		Args: args,
+	}
+}
 
-	b := (*(*[1<<31 - 1]byte)(unsafe.Pointer(&pkt)))[:unsafe.Sizeof(pkt)]
+type CommandResult struct {
+	StatusLine string
+	StatusCode int
+}
+
+type Packet struct {
+	packetVersion []byte
+	packetType    []byte
+	crc32         []byte
+	statusCode    []byte
+	padding       []byte
+	data          []byte
+
+	all []byte
+}
+
+func createPacket() *Packet {
+	var p Packet
+	p.all = make([]byte, packetLength)
+
+	p.packetVersion = p.all[0:2]
+	p.packetType = p.all[2:4]
+	p.crc32 = p.all[4:8]
+	p.statusCode = p.all[8:10]
+	p.padding = p.all[10:12]
+	p.data = p.all[12:]
+
+	return &p
+}
+
+func SendRequest(conn net.Conn, command Command, isSSL bool) (*CommandResult, error) {
+	var commandResult *CommandResult
+	var err error
+	pckt := createPacket()
 
 	be := binary.BigEndian
 
-	randomizeBuffer(b)
+	randomizeBuffer(pckt.all)
+	//todo add args[0]!argp[1]...
+	be.PutUint16(pckt.packetVersion, nrpePacketVersion2)
+	be.PutUint16(pckt.packetType, queryPacket)
+	be.PutUint32(pckt.crc32, 0)
+	be.PutUint16(pckt.statusCode, 0)
 
-	be.PutUint16(b[unsafe.Offsetof(pkt.packet_version):], NRPE_PACKET_VERSION_2)
-	be.PutUint16(b[unsafe.Offsetof(pkt.packet_type):], QUERY_PACKET)
-	be.PutUint32(b[unsafe.Offsetof(pkt.crc32_value):], 0)
-	be.PutUint16(b[unsafe.Offsetof(pkt.result_code):], 3)
+	if len(command.Name) >= maxPacketDataLength {
+		return nil, fmt.Errorf("CommandName too long: got %d , max allowed %d",
+			len(command.Name),
+			maxPacketDataLength-1,
+		)
+	}
 
-	copy(b[unsafe.Offsetof(pkt.buffer):], []byte(command))
-	b[int(unsafe.Offsetof(pkt.buffer))+len(command)] = 0
+	copy(pckt.data, []byte(command.Name))
 
-	be.PutUint32(b[unsafe.Offsetof(pkt.crc32_value):], crc32(b))
+	lastPos := len(command.Name)
 
-	bb := make([]byte, len(b))
-	copy(bb, b)
+	for _, arg := range command.Args {
+		if (lastPos + len(arg) + 1) >= maxPacketDataLength {
+			return nil, fmt.Errorf("Command too long: got %d , max allowed %d",
+				lastPos+len(arg)+1,
+				maxPacketDataLength-1,
+			)
+		}
+		pckt.data[lastPos] = '!'
+		copy(pckt.data[lastPos+1:], []byte(arg))
+		lastPos += len(arg) + 1
+	}
 
-	respBuffer := make([]byte, len(b))
+	// need to end with 0 (random now)
+	pckt.data[lastPos] = 0
 
-	if true {
-		err := sendSSL(conn, bb, respBuffer)
+	if lastPos >= maxPacketDataLength {
+		return nil, fmt.Errorf("nrpe: Command too long: got %d , max allowed %d", lastPos, maxPacketDataLength)
+	}
 
-		if err != nil {
+	be.PutUint32(pckt.crc32, crc32(pckt.all))
+
+	responsePacket := createPacket()
+
+	if isSSL {
+		if err = sendSSL(conn, pckt.all, responsePacket.all); err != nil {
 			return nil, err
 		}
-
 	} else {
-		l, err := conn.Write(bb)
-
-		if err != nil || l != len(bb) {
+		var l int
+		if l, err = conn.Write(pckt.all); err != nil {
 			return nil, err
 		}
 
-		l, err = conn.Read(respBuffer)
+		if l != packetLength {
+			return nil, fmt.Errorf("nrpe: Error writing packet, wrote:%d, expected to be written: %d", l, packetLength)
+		}
 
-		if err != nil || l != len(respBuffer) {
+		if l, err = conn.Read(responsePacket.all); err != nil {
 			return nil, err
+		}
+
+		if l != packetLength {
+			return nil, fmt.Errorf("nrpe: Error reading packet, got: %d, expected: %d", l, packetLength)
+		}
+
+		rpt := be.Uint16(responsePacket.packetType)
+		if rpt != responsePacketType {
+			return nil, fmt.Errorf("nrpe: Error response packet type, got: %d, expected: %d", rpt, responsePacketType)
 		}
 	}
 
-	var resp C.struct_nrpe_packet
+	respCRC := be.Uint32(responsePacket.crc32)
 
-	r := (*(*[1<<31 - 1]byte)(unsafe.Pointer(&resp)))[:unsafe.Sizeof(resp)]
-
-	copy(r, respBuffer)
-
-	crc := be.Uint32(r[unsafe.Offsetof(resp.crc32_value):])
-
-	be.PutUint32(r[unsafe.Offsetof(resp.crc32_value):], 0)
-
-	if crc32(r) != crc {
+	if crc32(respCRC) != crc {
 		return nil, fmt.Errorf("crc didnt match")
 	}
 
