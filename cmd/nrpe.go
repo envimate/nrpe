@@ -1,3 +1,24 @@
+/*
+
+nrpe cli tool
+
+Usage:
+	nrpe: [flag] [--] [arglist]
+
+The flags are:
+	-command string
+		command to execute (default "version")
+	-host string
+		hostname to connect (default "127.0.0.1")
+	-port int
+		port number (default 5666)
+	-ssl
+		use ssl (default true)
+	-timeout duration
+		network timeout
+
+
+*/
 package main
 
 import (

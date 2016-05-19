@@ -1,3 +1,6 @@
+/*
+Package nrpe is a nagios nrpe client library.
+*/
 package nrpe
 
 import (
@@ -30,14 +33,14 @@ const (
 )
 
 // CommandStatus represents result status code
-type CommandStatus uint16
+type CommandStatus int
 
 // Result status codes
 const (
-	StatusOk       = uint16(0)
-	StatusWarning  = uint16(1)
-	StatusCritical = uint16(2)
-	StatusUnknown  = uint16(3)
+	StatusOk       = 0
+	StatusWarning  = 1
+	StatusCritical = 2
+	StatusUnknown  = 3
 )
 
 // CommandResult holds information returned from nrpe server
