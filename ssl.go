@@ -96,6 +96,10 @@ static BIO_METHOD *BIO_s_go_conn() {
 	return &goConnBioMethod;
 }
 
+static long SSL_CTX_set_tmp_dh_func(SSL_CTX *ctx, DH *dh) {
+	return SSL_CTX_set_tmp_dh(ctx, dh);
+}
+
 */
 import "C"
 
@@ -265,3 +269,99 @@ func runSSL(conn net.Conn, timeout time.Duration, in []byte, out []byte) error {
 
 	return nil
 }
+
+var dhparam *C.DH
+
+func init() {
+	dhparam = C.DH_new()
+
+	if dhparam == nil {
+		panic("cannot initialize dh")
+	}
+
+	if C.DH_generate_parameters_ex(dhparam, 512, 2, nil) != 1 {
+		panic("cannot generate dh")
+	}
+}
+
+func serveOneSSL(conn net.Conn, timeout time.Duration,
+	handler func([]byte) ([]byte, error), inLen int) error {
+	ctx := &sslCTX{conn: conn, timeout: timeout}
+
+	defer func() {
+		if ctx.ptr != nil && connMap[ctx.ptr] == ctx {
+			delete(connMap, ctx.ptr)
+		}
+		if ctx.ssl != nil {
+			C.SSL_free(ctx.ssl)
+		}
+		if ctx.ctx != nil {
+			C.SSL_CTX_free(ctx.ctx)
+		}
+	}()
+
+	meth := C.SSLv23_server_method()
+
+	ctx.ctx = C.SSL_CTX_new(meth)
+
+	if ctx.ctx == nil {
+		return goifyError("nrpe: cannot create ssl context")
+	}
+
+	// disable ssl2 and ssl3
+	C.SSL_CTX_set_options_func(ctx.ctx, C.SSL_OP_NO_SSLv2|C.SSL_OP_NO_SSLv3)
+
+	// nrpe supports only Anonymous DH cipher suites
+	C.SSL_CTX_set_cipher_list(ctx.ctx, C.CString("ADH"))
+
+	C.SSL_CTX_set_tmp_dh_func(ctx.ctx, dhparam)
+
+	ctx.ssl = C.SSL_new(ctx.ctx)
+
+	if ctx.ssl == nil {
+		return goifyError("nrpe: cannot create ssl")
+	}
+
+	b := C.BIO_new(C.BIO_s_go_conn())
+
+	if b == nil {
+		return goifyError("nrpe: cannot create BIO")
+	}
+
+	ctx.ptr = unsafe.Pointer(b)
+	b.ptr = ctx.ptr
+
+	// we can't pass GO pointer to C, so we will keep ctx in global map
+	// and use it to access ctx from callback functions
+	connMap[ctx.ptr] = ctx
+
+	C.SSL_set_bio(ctx.ssl, b, b)
+
+	C.SSL_set_accept_state(ctx.ssl)
+
+	if C.SSL_do_handshake(ctx.ssl) != 1 {
+		return goifyError("nrpe: error on ssl handshake")
+	}
+
+	in := make([]byte, inLen)
+	cInLen := C.int(inLen)
+
+	if C.SSL_read(ctx.ssl, unsafe.Pointer(&in[0]), cInLen) != cInLen {
+		return goifyError("nrpe: error while reading")
+	}
+
+	out, err := handler(in)
+
+	if err != nil {
+		return err
+	}
+
+	outLen := C.int(len(out))
+
+	if C.SSL_write(ctx.ssl, unsafe.Pointer(&out[0]), outLen) != outLen {
+		return goifyError("nrpe: error while writing")
+	}
+
+	return nil
+}
+

@@ -6,6 +6,7 @@ package nrpe
 
 import (
 	"bytes"
+	"strings"
 	"encoding/binary"
 	"fmt"
 	"math/rand"
@@ -131,8 +132,16 @@ func NewCommand(name string, args ...string) Command {
 }
 
 func createPacket() *packet {
+	return createPacketFromByte(make([]byte, packetLength))
+}
+
+func createPacketFromByte(in []byte) *packet {
+	if len(in) != packetLength {
+		return nil
+	}
+
 	var p packet
-	p.all = make([]byte, packetLength)
+	p.all = in
 
 	p.packetVersion = p.all[0:2]
 	p.packetType = p.all[2:4]
@@ -190,11 +199,11 @@ func run(conn net.Conn, timeout time.Duration, payload []byte, response []byte) 
 	return nil
 }
 
-func verifyResponse(responsePacket *packet) error {
+func verifyResponse(responsePacket *packet, packetType uint16) error {
 	be := binary.BigEndian
 
 	rpt := be.Uint16(responsePacket.packetType)
-	if rpt != responsePacketType {
+	if rpt != packetType {
 		return fmt.Errorf(
 			"nrpe: Error response packet type, got: %d, expected: %d",
 			rpt, responsePacketType)
@@ -282,7 +291,7 @@ func Run(conn net.Conn, command Command, isSSL bool,
 		}
 	}
 
-	if err = verifyResponse(responsePacket); err != nil {
+	if err = verifyResponse(responsePacket, responsePacketType); err != nil {
 		return nil, err
 	}
 
@@ -293,4 +302,104 @@ func Run(conn net.Conn, command Command, isSSL bool,
 	}
 
 	return result, nil
+}
+
+func ServeOne(conn net.Conn, handler func(Command) (*CommandResult, error),
+	isSSL bool, timeout time.Duration) error {
+
+	var err error
+	var l int
+
+	be := binary.BigEndian
+
+	byteHandler := func (in []byte) ([]byte, error) {
+		var err error
+
+		requestPacket := createPacketFromByte(in)
+
+		if err = verifyResponse(requestPacket, queryPacketType); err != nil {
+			return nil, err
+		}
+
+		var pos = bytes.IndexByte(requestPacket.data, 0)
+
+		if pos == -1 {
+			return nil, fmt.Errorf("nrpe: invalid request")
+		}
+
+		data := strings.Split(string(requestPacket.data[:pos]), "!")
+
+		result, err := handler(NewCommand(data[0], data[1:]...))
+
+		if err != nil {
+			return nil, err
+		}
+
+		responsePacket := createPacket()
+
+		randomizeBuffer(responsePacket.all)
+
+		be.PutUint16(responsePacket.packetVersion, nrpePacketVersion2)
+		be.PutUint16(responsePacket.packetType, responsePacketType)
+		be.PutUint32(responsePacket.crc32, 0)
+		be.PutUint16(responsePacket.statusCode, uint16(result.StatusCode))
+
+		statusLen := len(result.StatusLine)
+
+		if len(result.StatusLine) >= maxPacketDataLength {
+			statusLen = maxPacketDataLength - 1
+		}
+
+		copy(responsePacket.data, ([]byte(result.StatusLine))[:statusLen])
+		responsePacket.data[statusLen] = 0
+
+		be.PutUint32(responsePacket.crc32, crc32(responsePacket.all))
+
+		return responsePacket.all, nil
+	}
+
+	if isSSL {
+		err := serveOneSSL(conn, timeout, byteHandler, packetLength)
+		if err != nil {
+			return err
+		}
+	} else {
+		if timeout > 0 {
+			conn.SetDeadline(time.Now().Add(timeout))
+		}
+
+		in := make([]byte, packetLength)
+
+		if l, err = conn.Read(in); err != nil {
+			return err
+		}
+
+		if l != packetLength {
+			return fmt.Errorf(
+				"nrpe: Error reading packet, got: %d, expected: %d",
+				l, packetLength)
+		}
+
+		out, err := byteHandler(in)
+
+		if err != nil {
+			return err
+		}
+
+		if timeout > 0 {
+			conn.SetDeadline(time.Now().Add(timeout))
+		}
+
+		if l, err = conn.Write(out); err != nil {
+			return err
+		}
+
+		if l != packetLength {
+			return fmt.Errorf(
+				"nrpe: Error writing packet, wrote:%d, expected to be written: %d",
+				l, packetLength)
+		}
+	}
+
+	return nil
 }
