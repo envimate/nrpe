@@ -1,8 +1,9 @@
-package client
+package nrpe
 
 import (
 	"fmt"
 	"net"
+	"time"
 	"unsafe"
 )
 
@@ -99,10 +100,11 @@ static BIO_METHOD *BIO_s_go_conn() {
 import "C"
 
 type sslCTX struct {
-	ctx  *C.SSL_CTX
-	ssl  *C.SSL
-	conn net.Conn
-	ptr  unsafe.Pointer
+	ctx     *C.SSL_CTX
+	ssl     *C.SSL
+	conn    net.Conn
+	timeout time.Duration
+	ptr     unsafe.Pointer
 }
 
 var connMap map[unsafe.Pointer]*sslCTX
@@ -137,6 +139,10 @@ func cBIOWrite(b *C.BIO, buf *C.char, length C.int) C.int {
 		return -1
 	}
 
+	if ctx.timeout > 0 {
+		ctx.conn.SetDeadline(time.Now().Add(ctx.timeout))
+	}
+
 	l, err := ctx.conn.Write((*(*[1<<31 - 1]byte)(unsafe.Pointer(buf)))[:int(length)])
 
 	if err != nil || l != int(length) {
@@ -152,6 +158,10 @@ func cBIORead(b *C.BIO, buf *C.char, length C.int) C.int {
 
 	if ctx == nil {
 		return -1
+	}
+
+	if ctx.timeout > 0 {
+		ctx.conn.SetDeadline(time.Now().Add(ctx.timeout))
 	}
 
 	l, err := ctx.conn.Read((*(*[1<<31 - 1]byte)(unsafe.Pointer(buf)))[:int(length)])
@@ -186,8 +196,8 @@ func goifyError(format string, a ...interface{}) error {
 	)
 }
 
-func sendSSL(conn net.Conn, in []byte, out []byte) error {
-	ctx := &sslCTX{conn: conn}
+func runSSL(conn net.Conn, timeout time.Duration, in []byte, out []byte) error {
+	ctx := &sslCTX{conn: conn, timeout: timeout}
 
 	defer func() {
 		if ctx.ptr != nil && connMap[ctx.ptr] == ctx {
@@ -230,10 +240,8 @@ func sendSSL(conn net.Conn, in []byte, out []byte) error {
 	ctx.ptr = unsafe.Pointer(b)
 	b.ptr = ctx.ptr
 
-	// we can't pass GO pointer to C,
-	// so we will keep ctx in global map
-	// and use it to access ctx from
-	// callback functions
+	// we can't pass GO pointer to C, so we will keep ctx in global map
+	// and use it to access ctx from callback functions
 	connMap[ctx.ptr] = ctx
 
 	C.SSL_set_bio(ctx.ssl, b, b)
@@ -241,7 +249,7 @@ func sendSSL(conn net.Conn, in []byte, out []byte) error {
 	C.SSL_set_connect_state(ctx.ssl)
 
 	if C.SSL_do_handshake(ctx.ssl) != 1 {
-		return goifyError("nrpe: error on handshake")
+		return goifyError("nrpe: error on ssl handshake")
 	}
 
 	inLen := C.int(len(in))

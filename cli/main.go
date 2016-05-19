@@ -1,34 +1,59 @@
 package main
 
 import (
-	_ "crypto/tls"
+	"flag"
 	"fmt"
-	nrpe "github.com/envimate/nrpe/client"
+	"github.com/envimate/nrpe"
 	"net"
+	"os"
+	"strconv"
+	"time"
 )
 
 func main() {
-	conn, err := net.Dial("tcp", "10.1.47.2:5666")
-	//conn, err := tls.Dial("tcp", "127.0.0.1:5666")
+	var cmd, host string
+	var port int
+	var isSsl bool
+	var timeout time.Duration
 
-	if err != nil {
-		fmt.Printf("error connectiog %s", err)
-		return
+	cmdFlag := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+
+	cmdFlag.Usage = func() {
+		fmt.Fprintf(os.Stderr,
+			"Usage of %s: [options] [--] [arglist]\nOptions:\n", os.Args[0])
+		cmdFlag.PrintDefaults()
 	}
 
-	_ = conn
+	cmdFlag.StringVar(&host, "host", "127.0.0.1", "hostname to connect")
+	cmdFlag.IntVar(&port, "port", 5666, "port number")
+	cmdFlag.BoolVar(&isSsl, "ssl", true, "use ssl")
+	cmdFlag.StringVar(&cmd, "command", "version", "command to execute")
+	cmdFlag.DurationVar(&timeout, "timeout", 0, "network timeout")
 
-	//packet := nrpe.CreatePacket("check_load")
+	cmdFlag.Parse(os.Args[1:])
 
-	res, err := nrpe.SendRequest(conn, "version")
+	conn, err := net.DialTimeout(
+		"tcp",
+		net.JoinHostPort(host, strconv.Itoa(port)),
+		5*time.Second,
+	)
 
-	fmt.Printf("%s\n", *res)
+	if err != nil {
+		fmt.Printf("nrpe: error while connecting %s\n", err)
+		os.Exit(int(nrpe.StatusUnknown))
+	}
 
-	/*err = nrpe.SendRequest(conn, "check_load")
+	args := cmdFlag.Args()
 
-	fmt.Printf("%s\n", err)*/
+	command := nrpe.NewCommand(cmd, args...)
 
-	//nrpe.SendPacket(conn, packet)
+	result, err := nrpe.Run(conn, command, isSsl, timeout)
 
-	// fmt.Printf("%+v\n", packet)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(int(nrpe.StatusUnknown))
+	}
+
+	fmt.Printf("%s\n", result.StatusLine)
+	os.Exit(int(result.StatusCode))
 }
