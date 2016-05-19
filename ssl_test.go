@@ -1,12 +1,12 @@
 package nrpe
 
 import (
-	"testing"
+	"fmt"
+	"net"
+	"os"
 	"strings"
 	"syscall"
-	"os"
-	"net"
-	"fmt"
+	"testing"
 )
 
 func TestClientServer(t *testing.T) {
@@ -45,7 +45,7 @@ func TestClientServer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	} ()
+	}()
 
 	command := NewCommand("check_bla", "1", "2")
 

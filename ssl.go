@@ -364,4 +364,3 @@ func serveOneSSL(conn net.Conn, timeout time.Duration,
 
 	return nil
 }
-

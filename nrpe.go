@@ -6,11 +6,11 @@ package nrpe
 
 import (
 	"bytes"
-	"strings"
 	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -312,7 +312,7 @@ func ServeOne(conn net.Conn, handler func(Command) (*CommandResult, error),
 
 	be := binary.BigEndian
 
-	byteHandler := func (in []byte) ([]byte, error) {
+	byteHandler := func(in []byte) ([]byte, error) {
 		var err error
 
 		requestPacket := createPacketFromByte(in)
