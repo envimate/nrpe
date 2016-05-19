@@ -32,9 +32,6 @@ const (
 	nrpePacketVersion2 = 2
 )
 
-// CommandStatus represents result status code
-type CommandStatus int
-
 // Result status codes
 const (
 	StatusOk       = 0
@@ -42,6 +39,9 @@ const (
 	StatusCritical = 2
 	StatusUnknown  = 3
 )
+
+// CommandStatus represents result status code
+type CommandStatus int
 
 // CommandResult holds information returned from nrpe server
 type CommandResult struct {

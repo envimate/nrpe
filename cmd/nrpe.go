@@ -1,6 +1,6 @@
 /*
 
-nrpe cli tool
+nrpe cli tool.
 
 Usage:
 	nrpe: [flag] [--] [arglist]
