@@ -112,7 +112,7 @@ var connMap map[unsafe.Pointer]*sslCTX
 func init() {
 	C.SSL_library_init()
 	C.SSL_load_error_strings()
-	//C.nrpe_openssl_init()
+	C.nrpe_openssl_init()
 
 	connMap = make(map[unsafe.Pointer]*sslCTX)
 }
@@ -178,7 +178,6 @@ func cBIOCtrl(b *C.BIO, cmd C.int, arg1 C.long, arg2 unsafe.Pointer) C.long {
 
 	switch cmd {
 	case C.BIO_CTRL_PENDING:
-		fmt.Printf("PENDING!\n")
 		return 0
 	case C.BIO_CTRL_FLUSH, C.BIO_CTRL_DUP:
 		return 1

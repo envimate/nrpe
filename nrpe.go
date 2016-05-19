@@ -1,5 +1,6 @@
 /*
 Package nrpe is a nagios nrpe client library.
+Requires libssl to compile.
 */
 package nrpe
 
@@ -34,7 +35,7 @@ const (
 
 // Result status codes
 const (
-	StatusOk       = 0
+	StatusOK       = 0
 	StatusWarning  = 1
 	StatusCritical = 2
 	StatusUnknown  = 3
@@ -115,13 +116,13 @@ func randomizeBuffer(in []byte) {
 	}
 }
 
-// Command represents command name and arguments list
+// Command represents command name and argument list
 type Command struct {
 	Name string
 	Args []string
 }
 
-// NewCommand creates Command object
+// NewCommand creates Command object with the given name and optional argument list
 func NewCommand(name string, args ...string) Command {
 	return Command{
 		Name: name,
@@ -142,13 +143,101 @@ func createPacket() *packet {
 	return &p
 }
 
+func (pckt *packet) readArguments(args []string, lastPos int) (int, error) {
+	for _, arg := range args {
+		if (lastPos + len(arg) + 1) >= maxPacketDataLength {
+			return lastPos, fmt.Errorf("Command too long: got %d , max allowed %d",
+				lastPos+len(arg)+1, maxPacketDataLength-1)
+		}
+		pckt.data[lastPos] = '!'
+		copy(pckt.data[lastPos+1:], []byte(arg))
+		lastPos += len(arg) + 1
+	}
+	return lastPos, nil
+}
+
+func run(conn net.Conn, timeout time.Duration, payload []byte, response []byte) error {
+	var l int
+	var err error
+
+	if timeout > 0 {
+		conn.SetDeadline(time.Now().Add(timeout))
+	}
+
+	if l, err = conn.Write(payload); err != nil {
+		return err
+	}
+
+	if l != packetLength {
+		return fmt.Errorf(
+			"nrpe: Error writing packet, wrote:%d, expected to be written: %d",
+			l, packetLength)
+	}
+
+	if timeout > 0 {
+		conn.SetDeadline(time.Now().Add(timeout))
+	}
+
+	if l, err = conn.Read(response); err != nil {
+		return err
+	}
+
+	if l != packetLength {
+		return fmt.Errorf(
+			"nrpe: Error reading packet, got: %d, expected: %d",
+			l, packetLength)
+	}
+	return nil
+}
+
+func verifyResponse(responsePacket *packet) error {
+	be := binary.BigEndian
+
+	rpt := be.Uint16(responsePacket.packetType)
+	if rpt != responsePacketType {
+		return fmt.Errorf(
+			"nrpe: Error response packet type, got: %d, expected: %d",
+			rpt, responsePacketType)
+	}
+
+	crc := be.Uint32(responsePacket.crc32)
+
+	be.PutUint32(responsePacket.crc32, 0)
+
+	if crc != crc32(responsePacket.all) {
+		return fmt.Errorf("nrpe: Response crc didn't match")
+	}
+	return nil
+}
+
+func readCommandResult(responsePacket *packet) (*CommandResult, error) {
+	var result CommandResult
+	be := binary.BigEndian
+
+	pos := bytes.IndexByte(responsePacket.data, 0)
+
+	if pos != -1 {
+		result.StatusLine = string(responsePacket.data[:pos])
+	}
+
+	code := be.Uint16(responsePacket.statusCode)
+
+	switch code {
+	case StatusOK, StatusWarning, StatusCritical, StatusUnknown:
+		result.StatusCode = CommandStatus(code)
+	default:
+		return nil, fmt.Errorf("nrpe: Unknown status code %d", code)
+	}
+	return &result, nil
+}
+
 // Run specified command
 func Run(conn net.Conn, command Command, isSSL bool,
 	timeout time.Duration) (*CommandResult, error) {
+	be := binary.BigEndian
+
 	var err error
 	pckt := createPacket()
-
-	be := binary.BigEndian
 
 	randomizeBuffer(pckt.all)
 
@@ -166,14 +255,8 @@ func Run(conn net.Conn, command Command, isSSL bool,
 
 	lastPos := len(command.Name)
 
-	for _, arg := range command.Args {
-		if (lastPos + len(arg) + 1) >= maxPacketDataLength {
-			return nil, fmt.Errorf("Command too long: got %d , max allowed %d",
-				lastPos+len(arg)+1, maxPacketDataLength-1)
-		}
-		pckt.data[lastPos] = '!'
-		copy(pckt.data[lastPos+1:], []byte(arg))
-		lastPos += len(arg) + 1
+	if lastPos, err = pckt.readArguments(command.Args, lastPos); err != nil {
+		return nil, err
 	}
 
 	// need to end with 0 (random now)
@@ -194,68 +277,20 @@ func Run(conn net.Conn, command Command, isSSL bool,
 			return nil, err
 		}
 	} else {
-		var l int
-
-		if timeout > 0 {
-			conn.SetDeadline(time.Now().Add(timeout))
-		}
-
-		if l, err = conn.Write(pckt.all); err != nil {
+		if err = run(conn, timeout, pckt.all, responsePacket.all); err != nil {
 			return nil, err
 		}
-
-		if l != packetLength {
-			return nil, fmt.Errorf(
-				"nrpe: Error writing packet, wrote:%d, expected to be written: %d",
-				l, packetLength)
-		}
-
-		if timeout > 0 {
-			conn.SetDeadline(time.Now().Add(timeout))
-		}
-
-		if l, err = conn.Read(responsePacket.all); err != nil {
-			return nil, err
-		}
-
-		if l != packetLength {
-			return nil, fmt.Errorf(
-				"nrpe: Error reading packet, got: %d, expected: %d",
-				l, packetLength)
-		}
-
-		rpt := be.Uint16(responsePacket.packetType)
-		if rpt != responsePacketType {
-			return nil, fmt.Errorf(
-				"nrpe: Error response packet type, got: %d, expected: %d",
-				rpt, responsePacketType)
-		}
 	}
 
-	crc := be.Uint32(responsePacket.crc32)
-
-	be.PutUint32(responsePacket.crc32, 0)
-
-	if crc != crc32(responsePacket.all) {
-		return nil, fmt.Errorf("nrpe: Response crc didn't match")
+	if err = verifyResponse(responsePacket); err != nil {
+		return nil, err
 	}
 
-	var result CommandResult
+	var result *CommandResult
 
-	pos := bytes.IndexByte(responsePacket.data, 0)
-
-	if pos != -1 {
-		result.StatusLine = string(responsePacket.data[:pos])
+	if result, err = readCommandResult(responsePacket); err != nil {
+		return nil, err
 	}
 
-	code := be.Uint16(responsePacket.statusCode)
-
-	switch code {
-	case StatusOk, StatusWarning, StatusCritical, StatusUnknown:
-		result.StatusCode = CommandStatus(code)
-	default:
-		return nil, fmt.Errorf("nrpe: Unknown status code %d", code)
-	}
-
-	return &result, nil
+	return result, nil
 }

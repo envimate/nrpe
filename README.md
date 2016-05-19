@@ -2,9 +2,9 @@
 
 Package `envimate/nrpe` implements NRPE client library for go.
 
-You will need libssl, in order to use this library.
+Requires libssl to compile and run.
 
-Example
+## Example
 
 ```go
 package main
@@ -36,3 +36,12 @@ func main() {
         os.Exit(int(result.StatusCode))
 }
 ```
+
+## Checkout and compile
+
+### checkout
+`go get github.com/envimate/nrpe`
+
+### compile
+
+`go build github.com/envimate/nrpe/cmd/check_nrpe`

@@ -1,6 +1,11 @@
 /*
 
-nrpe cli tool.
+check_nrpe is a command line NRPE client.
+
+Calls the remote nrpe server and returns the response and status code.
+In case of connectivity issues with NRPE server the error is written into Stderr
+and the status code is 3.
+
 
 Usage:
 	nrpe: [flag] [--] [arglist]
@@ -24,17 +29,18 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/envimate/nrpe"
 	"net"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/envimate/nrpe"
 )
 
 func main() {
 	var cmd, host string
 	var port int
-	var isSsl bool
+	var isSSL bool
 	var timeout time.Duration
 
 	cmdFlag := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -47,7 +53,7 @@ func main() {
 
 	cmdFlag.StringVar(&host, "host", "127.0.0.1", "hostname to connect")
 	cmdFlag.IntVar(&port, "port", 5666, "port number")
-	cmdFlag.BoolVar(&isSsl, "ssl", true, "use ssl")
+	cmdFlag.BoolVar(&isSSL, "ssl", true, "use ssl")
 	cmdFlag.StringVar(&cmd, "command", "version", "command to execute")
 	cmdFlag.DurationVar(&timeout, "timeout", 0, "network timeout")
 
@@ -56,7 +62,7 @@ func main() {
 	conn, err := net.DialTimeout(
 		"tcp",
 		net.JoinHostPort(host, strconv.Itoa(port)),
-		5*time.Second,
+		timeout,
 	)
 
 	if err != nil {
@@ -68,7 +74,7 @@ func main() {
 
 	command := nrpe.NewCommand(cmd, args...)
 
-	result, err := nrpe.Run(conn, command, isSsl, timeout)
+	result, err := nrpe.Run(conn, command, isSSL, timeout)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
