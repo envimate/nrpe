@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 	"unsafe"
+	"sync"
 )
 
 /*
@@ -111,14 +112,42 @@ type sslCTX struct {
 	ptr     unsafe.Pointer
 }
 
-var connMap map[unsafe.Pointer]*sslCTX
+type connectionMap struct {
+	lock   sync.Mutex
+	values map[unsafe.Pointer]*sslCTX
+}
+
+func (c *connectionMap) add(k unsafe.Pointer, v *sslCTX) {
+	c.lock.Lock()
+	c.values[k] = v
+	c.lock.Unlock()
+}
+
+func (c *connectionMap) del(k unsafe.Pointer, v *sslCTX) {
+	c.lock.Lock()
+	r, ok := c.values[k]
+	if ok && r == v {
+		delete(c.values, k)
+	}
+	c.lock.Unlock()
+}
+
+func (c *connectionMap) get(k unsafe.Pointer) *sslCTX {
+	c.lock.Lock()
+	r := c.values[k]
+	c.lock.Unlock()
+
+	return r
+}
+
+var connMap connectionMap
 
 func init() {
 	C.SSL_library_init()
 	C.SSL_load_error_strings()
 	C.nrpe_openssl_init()
 
-	connMap = make(map[unsafe.Pointer]*sslCTX)
+	connMap.values = make(map[unsafe.Pointer]*sslCTX)
 }
 
 //export cBIONew
@@ -137,7 +166,7 @@ func cBIOFree(b *C.BIO) C.int {
 
 //export cBIOWrite
 func cBIOWrite(b *C.BIO, buf *C.char, length C.int) C.int {
-	ctx := connMap[unsafe.Pointer(b)]
+	ctx := connMap.get(unsafe.Pointer(b))
 
 	if ctx == nil {
 		return -1
@@ -158,7 +187,7 @@ func cBIOWrite(b *C.BIO, buf *C.char, length C.int) C.int {
 
 //export cBIORead
 func cBIORead(b *C.BIO, buf *C.char, length C.int) C.int {
-	ctx := connMap[unsafe.Pointer(b)]
+	ctx := connMap.get(unsafe.Pointer(b))
 
 	if ctx == nil {
 		return -1
@@ -203,8 +232,8 @@ func runSSL(conn net.Conn, timeout time.Duration, in []byte, out []byte) error {
 	ctx := &sslCTX{conn: conn, timeout: timeout}
 
 	defer func() {
-		if ctx.ptr != nil && connMap[ctx.ptr] == ctx {
-			delete(connMap, ctx.ptr)
+		if ctx.ptr != nil {
+			connMap.del(ctx.ptr, ctx)
 		}
 		if ctx.ssl != nil {
 			C.SSL_free(ctx.ssl)
@@ -225,14 +254,14 @@ func runSSL(conn net.Conn, timeout time.Duration, in []byte, out []byte) error {
 	// disable ssl2 and ssl3
 	C.SSL_CTX_set_options_func(ctx.ctx, C.SSL_OP_NO_SSLv2|C.SSL_OP_NO_SSLv3)
 
+	// nrpe supports only Anonymous DH cipher suites
+	C.SSL_CTX_set_cipher_list(ctx.ctx, C.CString("ADH"))
+
 	ctx.ssl = C.SSL_new(ctx.ctx)
 
 	if ctx.ssl == nil {
 		return goifyError("nrpe: cannot create ssl")
 	}
-
-	// nrpe supports only Anonymous DH cipher suites
-	C.SSL_CTX_set_cipher_list(ctx.ctx, C.CString("ADH"))
 
 	b := C.BIO_new(C.BIO_s_go_conn())
 
@@ -245,7 +274,7 @@ func runSSL(conn net.Conn, timeout time.Duration, in []byte, out []byte) error {
 
 	// we can't pass GO pointer to C, so we will keep ctx in global map
 	// and use it to access ctx from callback functions
-	connMap[ctx.ptr] = ctx
+	connMap.add(ctx.ptr, ctx)
 
 	C.SSL_set_bio(ctx.ssl, b, b)
 
@@ -289,8 +318,8 @@ func serveOneSSL(conn net.Conn, timeout time.Duration,
 	ctx := &sslCTX{conn: conn, timeout: timeout}
 
 	defer func() {
-		if ctx.ptr != nil && connMap[ctx.ptr] == ctx {
-			delete(connMap, ctx.ptr)
+		if ctx.ptr != nil {
+			connMap.del(ctx.ptr, ctx)
 		}
 		if ctx.ssl != nil {
 			C.SSL_free(ctx.ssl)
@@ -333,14 +362,14 @@ func serveOneSSL(conn net.Conn, timeout time.Duration,
 
 	// we can't pass GO pointer to C, so we will keep ctx in global map
 	// and use it to access ctx from callback functions
-	connMap[ctx.ptr] = ctx
+	connMap.add(ctx.ptr, ctx)
 
 	C.SSL_set_bio(ctx.ssl, b, b)
 
 	C.SSL_set_accept_state(ctx.ssl)
 
 	if C.SSL_do_handshake(ctx.ssl) != 1 {
-		return goifyError("nrpe: error on ssl handshake")
+		return goifyError("nrpe: error on ssl server handshake")
 	}
 
 	in := make([]byte, inLen)
