@@ -7,7 +7,7 @@ Requires libssl to compile and run.
 ### Status
 [![Build Status](https://travis-ci.org/envimate/nrpe.svg?branch=master)](https://travis-ci.org/envimate/nrpe)
 
-## Example
+## Client Example
 
 ```go
 package main
@@ -37,6 +37,53 @@ func main() {
 
         fmt.Println(result.StatusLine)
         os.Exit(int(result.StatusCode))
+}
+```
+
+## Server Example
+
+```go
+package main
+
+import (
+	"fmt"
+	"net"
+
+	"github.com/envimate/nrpe"
+)
+
+func nrpeHandler(c nrpe.Command) (*nrpe.CommandResult, error) {
+	// handle nrpe command here
+
+	return &nrpe.CommandResult{
+		StatusLine: "COMMAND=" + c.Name,
+		StatusCode: nrpe.StatusOK,
+	}, nil
+}
+
+func connectionHandler(conn net.Conn) {
+	defer conn.Close()
+	nrpe.ServeOne(conn, nrpeHandler, true, 0)
+}
+
+func main() {
+	ln, err := net.Listen("tcp", ":5667")
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	for {
+		conn, err := ln.Accept()
+
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		go connectionHandler(conn)
+	}
 }
 ```
 
