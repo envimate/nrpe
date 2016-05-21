@@ -1,11 +1,12 @@
 package nrpe
 
 import (
+	. "fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -13,8 +14,8 @@ import (
 type socketPair struct {
 	clientFile *os.File
 	serverFile *os.File
-	client net.Conn
-	server net.Conn
+	client     net.Conn
+	server     net.Conn
 }
 
 func (s *socketPair) Close() {
@@ -24,7 +25,7 @@ func (s *socketPair) Close() {
 	s.server.Close()
 }
 
-func createSocketPair(t *testing.T) (*socketPair) {
+func createSocketPair(t *testing.T) *socketPair {
 	fds, err := syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_STREAM, 0)
 
 	if err != nil {
@@ -52,11 +53,12 @@ func createSocketPair(t *testing.T) (*socketPair) {
 	s := &socketPair{
 		clientFile: clientFile,
 		serverFile: serverFile,
-		client: clientConn,
-		server: serverConn,
+		client:     clientConn,
+		server:     serverConn,
 	}
 
 	runtime.SetFinalizer(s, func(s *socketPair) {
+		Println("pair Finalizer")
 		s.Close()
 	})
 
@@ -111,7 +113,7 @@ func TestClientServerSslTimeoutOk(t *testing.T) {
 
 	command := NewCommand("check_bla", "1", "2")
 
-	result, err := Run(sock.client, command, true, 5 * time.Second)
+	result, err := Run(sock.client, command, true, 5*time.Second)
 
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +123,6 @@ func TestClientServerSslTimeoutOk(t *testing.T) {
 		t.Fatal("Unexpected response")
 	}
 }
-
 
 func TestClientServerSslTimeoutServer(t *testing.T) {
 	sock := createSocketPair(t)
@@ -171,5 +172,5 @@ func TestClientServerSslTimeoutClient(t *testing.T) {
 
 	time.Sleep(10)
 
-	<- c
+	<-c
 }
