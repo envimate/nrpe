@@ -1,8 +1,11 @@
-# nrpe client library
+# nrpe client/server library
 
 Package `envimate/nrpe` implements NRPE client library for go.
 
 Requires libssl to compile and run.
+
+### Status
+[![Build Status](https://travis-ci.org/envimate/nrpe.svg?branch=master)](https://travis-ci.org/envimate/nrpe)
 
 ## Example
 
