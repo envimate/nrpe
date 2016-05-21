@@ -3,9 +3,7 @@ package nrpe
 import (
 	"fmt"
 	"net"
-	_ "runtime"
 	"sync"
-	_ "time"
 	"unsafe"
 )
 
@@ -112,7 +110,7 @@ const (
 	stateError       = iota
 )
 
-type Conn struct {
+type sslConn struct {
 	net.Conn
 	ctx   *C.SSL_CTX
 	ssl   *C.SSL
@@ -122,10 +120,10 @@ type Conn struct {
 
 type connectionMap struct {
 	lock   sync.Mutex
-	values map[unsafe.Pointer]*Conn
+	values map[unsafe.Pointer]*sslConn
 }
 
-func (c *connectionMap) add(k unsafe.Pointer, v *Conn) {
+func (c *connectionMap) add(k unsafe.Pointer, v *sslConn) {
 	c.lock.Lock()
 	c.values[k] = v
 	c.lock.Unlock()
@@ -137,7 +135,7 @@ func (c *connectionMap) del(k unsafe.Pointer) {
 	c.lock.Unlock()
 }
 
-func (c *connectionMap) get(k unsafe.Pointer) *Conn {
+func (c *connectionMap) get(k unsafe.Pointer) *sslConn {
 	c.lock.Lock()
 	r := c.values[k]
 	c.lock.Unlock()
@@ -152,7 +150,7 @@ func init() {
 	C.SSL_load_error_strings()
 	C.nrpe_openssl_init()
 
-	connMap.values = make(map[unsafe.Pointer]*Conn)
+	connMap.values = make(map[unsafe.Pointer]*sslConn)
 }
 
 //export cBIONew
@@ -243,7 +241,7 @@ func goifyError(format string, a ...interface{}) error {
 	)
 }
 
-func (c Conn) Clean() {
+func (c sslConn) Clean() {
 	if c.ssl != nil {
 		C.SSL_free(c.ssl)
 		c.ssl = nil
@@ -258,12 +256,12 @@ func (c Conn) Clean() {
 	}
 }
 
-func (c Conn) Close() error {
+func (c sslConn) Close() error {
 	c.Clean()
 	return c.Conn.Close()
 }
 
-func (c Conn) Read(b []byte) (n int, err error) {
+func (c sslConn) Read(b []byte) (n int, err error) {
 	if c.state == stateError {
 		return 0, fmt.Errorf("nrpe: inconsistent connection state")
 	}
@@ -286,7 +284,7 @@ func (c Conn) Read(b []byte) (n int, err error) {
 	return rc, nil
 }
 
-func (c Conn) Write(b []byte) (n int, err error) {
+func (c sslConn) Write(b []byte) (n int, err error) {
 	if c.state == stateError {
 		return 0, fmt.Errorf("nrpe: inconsistent connection state")
 	}
@@ -309,8 +307,8 @@ func (c Conn) Write(b []byte) (n int, err error) {
 	return rc, nil
 }
 
-func NewSSLClient(conn net.Conn) (net.Conn, error) {
-	c := &Conn{conn, nil, nil, nil, stateInitial}
+func newSSLClient(conn net.Conn) (net.Conn, error) {
+	c := &sslConn{conn, nil, nil, nil, stateInitial}
 
 	meth := C.SSLv23_client_method()
 
@@ -366,8 +364,8 @@ func init() {
 	}
 }
 
-func NewSSLServerConn(conn net.Conn) (net.Conn, error) {
-	c := &Conn{conn, nil, nil, nil, stateInitial}
+func newSSLServerConn(conn net.Conn) (net.Conn, error) {
+	c := &sslConn{conn, nil, nil, nil, stateInitial}
 
 	meth := C.SSLv23_server_method()
 

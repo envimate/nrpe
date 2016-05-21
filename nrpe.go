@@ -1,5 +1,5 @@
 /*
-Package nrpe is a nagios nrpe client library.
+Package nrpe is a nagios nrpe client and server library.
 Requires libssl to compile.
 */
 package nrpe
@@ -270,11 +270,11 @@ func Run(conn net.Conn, command Command, isSSL bool,
 
 	// setup ssl connection
 	if isSSL {
-		conn, err = NewSSLClient(conn)
+		conn, err = newSSLClient(conn)
 		if err != nil {
 			return nil, err
 		}
-		defer conn.(*Conn).Clean()
+		defer conn.(*sslConn).Clean()
 	}
 
 	statusLine := command.toStatusLine()
@@ -309,8 +309,9 @@ func Run(conn net.Conn, command Command, isSSL bool,
 	return result, nil
 }
 
-// ServeOne function will handle exactly one NRPE. After receiving request
-// it will call handler callback function and result will be sent to requester.
+// ServeOne function will handle one request. After receiving request
+// it will call handler callback function and the result of callback
+// will be sent to requester.
 func ServeOne(conn net.Conn, handler func(Command) (*CommandResult, error),
 	isSSL bool, timeout time.Duration) error {
 
@@ -318,11 +319,11 @@ func ServeOne(conn net.Conn, handler func(Command) (*CommandResult, error),
 
 	// setup ssl
 	if isSSL {
-		conn, err = NewSSLServerConn(conn)
+		conn, err = newSSLServerConn(conn)
 		if err != nil {
 			return err
 		}
-		defer conn.(*Conn).Clean()
+		defer conn.(*sslConn).Clean()
 	}
 
 	request := createPacket()
