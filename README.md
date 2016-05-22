@@ -2,6 +2,7 @@
 
 [![GoDoc](https://godoc.org/github.com/envimate/nrpe?status.svg)](https://godoc.org/github.com/envimate/nrpe)
 [![Build Status](https://travis-ci.org/envimate/nrpe.svg?branch=master)](https://travis-ci.org/envimate/nrpe)
+[![Go Report Card](https://goreportcard.com/badge/github.com/envimate/nrpe)](https://goreportcard.com/report/github.com/envimate/nrpe)
 
 Package `envimate/nrpe` implements NRPE client/server library for go.
 
