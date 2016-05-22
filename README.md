@@ -1,11 +1,15 @@
 # nrpe client/server library
 
-Package `envimate/nrpe` implements NRPE client library for go.
+[![GoDoc](https://godoc.org/github.com/envimate/nrpe?status.svg)](https://godoc.org/github.com/envimate/nrpe)
+[![Build Status](https://travis-ci.org/envimate/nrpe.svg?branch=master)](https://travis-ci.org/envimate/nrpe)
+
+Package `envimate/nrpe` implements NRPE client/server library for go.
+
+It supports plain and ssl modes and fully compatible with standard nrpe library.
+
+Package includes `check_nrpe` command, which is alternate implementation of homonymous command shipped with nrpe package.
 
 Requires libssl to compile and run.
-
-### Status
-[![Build Status](https://travis-ci.org/envimate/nrpe.svg?branch=master)](https://travis-ci.org/envimate/nrpe)
 
 ## Client Example
 
@@ -87,11 +91,10 @@ func main() {
 }
 ```
 
-## Checkout and compile
+## Checkout and compile check_nrpe
 
 ### checkout
 `go get github.com/envimate/nrpe`
 
 ### compile
-
 `go build github.com/envimate/nrpe/cmd/check_nrpe`
