@@ -6,4 +6,4 @@ RUN apt-get install -y nagios-nrpe-plugin
 
 EXPOSE 5666
 
-ENTRYPOINT ["/bin/bash", "-c", "/usr/sbin/nrpe -c /etc/nagios/nrpe.cfg -d;/bin/bash"]
+ENTRYPOINT ["/bin/bash", "-c", "/etc/init.d/nagios-nrpe-server start;/bin/bash"]
