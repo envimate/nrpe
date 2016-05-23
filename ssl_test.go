@@ -1,73 +1,14 @@
 package nrpe
 
 import (
-	. "fmt"
-	"net"
-	"os"
-	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
 
-type socketPair struct {
-	clientFile *os.File
-	serverFile *os.File
-	client     net.Conn
-	server     net.Conn
-}
-
-func (s *socketPair) Close() {
-	s.clientFile.Close()
-	s.serverFile.Close()
-	s.client.Close()
-	s.server.Close()
-}
-
-func createSocketPair(t *testing.T) *socketPair {
-	fds, err := syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_STREAM, 0)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	clientFile := os.NewFile(uintptr(fds[0]), "client")
-	serverFile := os.NewFile(uintptr(fds[1]), "server")
-
-	defer clientFile.Close()
-	defer serverFile.Close()
-
-	clientConn, err := net.FileConn(clientFile)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	serverConn, err := net.FileConn(serverFile)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	s := &socketPair{
-		clientFile: clientFile,
-		serverFile: serverFile,
-		client:     clientConn,
-		server:     serverConn,
-	}
-
-	runtime.SetFinalizer(s, func(s *socketPair) {
-		Println("pair Finalizer")
-		s.Close()
-	})
-
-	return s
-}
-
 func TestClientServerSsl(t *testing.T) {
 
-	sock := createSocketPair(t)
+	sock := testCreateSocketPair(t)
 
 	go func() {
 		err := ServeOne(sock.server, func(command Command) (*CommandResult, error) {
@@ -96,7 +37,7 @@ func TestClientServerSsl(t *testing.T) {
 }
 
 func TestClientServerSslTimeoutOk(t *testing.T) {
-	sock := createSocketPair(t)
+	sock := testCreateSocketPair(t)
 
 	go func() {
 		err := ServeOne(sock.server, func(command Command) (*CommandResult, error) {
@@ -125,7 +66,7 @@ func TestClientServerSslTimeoutOk(t *testing.T) {
 }
 
 func TestClientServerSslTimeoutServer(t *testing.T) {
-	sock := createSocketPair(t)
+	sock := testCreateSocketPair(t)
 
 	go func() {
 		err := ServeOne(sock.server, func(command Command) (*CommandResult, error) {
@@ -151,7 +92,7 @@ func TestClientServerSslTimeoutServer(t *testing.T) {
 }
 
 func TestClientServerSslTimeoutClient(t *testing.T) {
-	sock := createSocketPair(t)
+	sock := testCreateSocketPair(t)
 
 	c := make(chan int)
 

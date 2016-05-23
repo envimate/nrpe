@@ -1,6 +1,8 @@
 /*
-Package nrpe is a nagios nrpe client and server library.
-Requires libssl to compile.
+Package nrpe implements NRPE client/server library for go.
+
+It supports plain and ssl modes and fully compatible with standard nrpe library.
+Hence you would need libssl-dev package installed on both the client and the server side.
 */
 package nrpe
 
@@ -280,7 +282,7 @@ func Run(conn net.Conn, command Command, isSSL bool,
 	statusLine := command.toStatusLine()
 
 	if len(statusLine) >= maxPacketDataLength {
-		return nil, fmt.Errorf("Command is too long: got %d , max allowed %d",
+		return nil, fmt.Errorf("nrpe: Command is too long: got %d, max allowed %d",
 			len(statusLine), maxPacketDataLength-1)
 	}
 

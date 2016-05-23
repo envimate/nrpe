@@ -1,3 +1,5 @@
+// +build cgo
+
 package nrpe
 
 import (
@@ -104,10 +106,10 @@ static long SSL_CTX_set_tmp_dh_func(SSL_CTX *ctx, DH *dh) {
 import "C"
 
 const (
-	stateInitial     = iota
-	stateInHandshake = iota
-	stateReady       = iota
-	stateError       = iota
+	stateInitial = iota
+	stateInHandshake
+	stateReady
+	stateError
 )
 
 type sslConn struct {
