@@ -164,7 +164,7 @@ func verifyPacket(responsePacket *packet, packetType uint16) error {
 	if rpt != packetType {
 		return fmt.Errorf(
 			"nrpe: Error response packet type, got: %d, expected: %d",
-			rpt, responsePacketType)
+			rpt, packetType)
 	}
 
 	crc := be.Uint32(responsePacket.crc32)

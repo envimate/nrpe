@@ -225,8 +225,6 @@ func cBIORead(b *C.BIO, buf *C.char, length C.int) C.int {
 func cBIOCtrl(b *C.BIO, cmd C.int, arg1 C.long, arg2 unsafe.Pointer) C.long {
 
 	switch cmd {
-	case C.BIO_CTRL_PENDING:
-		return 0
 	case C.BIO_CTRL_FLUSH, C.BIO_CTRL_DUP:
 		return 1
 	default:
