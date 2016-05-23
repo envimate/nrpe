@@ -101,4 +101,3 @@ func main() {
 
 ### compile
 `go build github.com/envimate/nrpe/cmd/check_nrpe`
-
