@@ -142,7 +142,6 @@ func TestSslWritePanic(t *testing.T) {
 
 	clientSock.write = func(b []byte) (n int, err error) {
 		panic("you shall not pass")
-		return -1, nil
 	}
 
 	cl, err := newSSLClient(clientSock)
@@ -165,7 +164,6 @@ func TestSslReadPanic(t *testing.T) {
 
 	serverSock.read = func(b []byte) (n int, err error) {
 		panic("you shall not pass")
-		return -1, nil
 	}
 
 	sl, err := newSSLServerConn(serverSock)

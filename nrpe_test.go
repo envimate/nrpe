@@ -16,6 +16,27 @@ import (
 	"encoding/binary"
 )
 
+func ExampleRun() {
+	conn, err := net.Dial("tcp", "127.0.0.1:5666")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	command := NewCommand("check_load")
+
+	// ssl = true, timeout = 0
+	result, err := Run(conn, command, true, 0)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(result.StatusLine)
+	os.Exit(int(result.StatusCode))
+}
+
+
 type testSocketPair struct {
 	clientFile *os.File
 	serverFile *os.File
