@@ -7,6 +7,8 @@
 Package `envimate/nrpe` implements NRPE client/server library for go.
 
 It supports plain and ssl modes and fully compatible with standard nrpe library.
+Hence you would need `libssl-dev` package installed on both the client and the server side.
+You would also need `gcc` to build the package.
 
 Package includes `check_nrpe` command, which is alternate implementation of homonymous command shipped with nrpe package.
 
