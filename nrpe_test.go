@@ -36,7 +36,6 @@ func ExampleRun() {
 	os.Exit(int(result.StatusCode))
 }
 
-
 type testSocketPair struct {
 	clientFile *os.File
 	serverFile *os.File
