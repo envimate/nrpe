@@ -95,6 +95,11 @@ func main() {
 }
 ```
 
+## In-depth examples
+
+You can also checkout our blog-post for the [client](https://blog.envimate.me/2016/05/23/golang-client-for-nrpe/) and [server](https://blog.envimate.me/2016/05/30/nrpe-server-in-golang/) for in-depth description and usage example with real microservice.
+
+
 ## Checkout and compile check_nrpe
 
 ### checkout
