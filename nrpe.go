@@ -13,13 +13,31 @@ import (
 	"math/rand"
 	"net"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 )
 
 var crc32Table []uint32
 
-var randSource *rand.Rand
+type syncedRand struct {
+	ra *rand.Rand
+	mu *sync.Mutex
+}
+
+func (r *syncedRand) Uint32() uint32 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ra.Uint32()
+}
+
+func (r *syncedRand) Seed(seed int64) {
+	r.mu.Lock()
+	r.ra.Seed(seed)
+	r.mu.Unlock()
+}
+
+var randSource *syncedRand
 
 const (
 	maxPacketDataLength = 1024
@@ -86,7 +104,9 @@ func init() {
 		crc32Table[i] = crc
 	}
 
-	randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
+	// rand.NewSource returns a new pseudo-random Source seeded with the given value.
+	// Unlike the default Source used by top-level functions, this source is not safe for concurrent use by multiple goroutines.
+	randSource = &syncedRand{rand.New(rand.NewSource(time.Now().UnixNano())), &sync.Mutex{}}
 }
 
 //Builds crc32 from the given input
