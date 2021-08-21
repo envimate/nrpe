@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 	"unsafe"
@@ -216,21 +215,6 @@ func TestClientServerTimeoutClient(t *testing.T) {
 	time.Sleep(10)
 
 	<-c
-}
-
-func TestRandSource(t *testing.T) {
-	const c = 1000000
-	var wg sync.WaitGroup
-	wg.Add(c)
-
-	for i := 0; i < c; i++ {
-		go func(i int) {
-			defer wg.Done()
-			randSource.Seed(0)
-			randSource.Uint32()
-		}(i)
-	}
-	wg.Wait()
 }
 
 func TestBufferRandomizer(t *testing.T) {
